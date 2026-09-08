@@ -4,23 +4,34 @@ from pywebio import start_server
 
 
 def post_weight():
-    Length = input("Your Length(sm): ", type=FLOAT)
-    Width = input("Your Width(sm): ", type=FLOAT)
-    Height = input("Your Height(sm): ", type=FLOAT)
+    length = input("Your Length(sm): ", type=FLOAT)
+    width = input("Your Width(sm): ", type=FLOAT)
+    height = input("Your Height(sm): ", type=FLOAT)
 
-    DIM = (Length * Width * Height) / 4000
-    DMI = (Length * Width * Height) / 5000
+    dim = (length * width * height) / 4000
+    dmi = (length * width * height) / 5000
 
-    FA = input("Your FA(kg): ", type=FLOAT)
-    VW = select("Choice your VW:", options=["DIM", "DMI"])
+    fa = input("Your FA(kg): ", type=FLOAT)
+    vw = select("Choice your VW:", options=["DIM", "DMI"])
 
-    selected_vw = DIM if VW == "DIM" else DMI
-    GW = max(FA, selected_vw)
+    selected_vw = dim if vw == "DIM" else dmi
+    gw = max(fa, selected_vw)
+    return gw
 
-    put_text(f"GW: {GW} kg")
 
+def duty():
+    value = input("Your cost in €: ", type=FLOAT)
+    if value > 150:
+        value = value + (value - 150) * 0.32
+    return value
+
+
+def main():
+    gw = post_weight()
+    cost = duty()
+    total = gw + cost
+    put_text(f"Total check: {total:.2f} EUR")
 
 
 if __name__ == '__main__':
-    start_server(post_weight, port=8000, debug=True)
-    
+    start_server(main, port=8000, debug=True)
