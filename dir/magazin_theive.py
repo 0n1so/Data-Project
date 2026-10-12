@@ -6,11 +6,12 @@
 Будує два графіки в одній фігурі (matplotlib): суму повернень по касирах і кількість повернень по годинах.
 Виводить висновок: ім'я підозрюваного."""
 
-
+#імпортуєм бібліотеки
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+#создаєм масив даних про транзакції
 transactions = pd.DataFrame({
     "id":       range(1, 13),
     "cashier":  ["Ann", "Bob", "Cat", "Bob", "Ann", "Bob", "Cat", "Bob", "Ann", "Bob", "Cat", "Bob"],
@@ -19,12 +20,14 @@ transactions = pd.DataFrame({
     "hour":     [10, 23, 11, 22, 12, 23, 13, 22, 14, 15, 16, 23],
 })
 
-#структуровка даних
+#структуровка даних -> видаляєм записи з NaN
 transactions = transactions.dropna(subset=['amount'])
+#шукаєм повернення і групуєм по касирам
 refunds = transactions[transactions["type"] == "refund"]
+#рахуєм кількість і суму повернень по касирам
 result = refunds.groupby("cashier")["amount"].agg(["count", "sum"])
 
-#шукаєм частку повернень
+#шукаєм частку повернень -> ділим кількість повернень на кількість всіх операцій по касирам + fillna(0) для заповнення NaN нулями
 chast = (refunds.groupby('cashier').size() / transactions.groupby('cashier').size()).fillna(0)
 
 #виводить надпись про початок
@@ -32,7 +35,8 @@ print(f'===Перший Етап Перевірки===')
 print(f'{result}\n')
 print(f'---------------------------\n')
 
-#робимо цикл в якому перебираєм всіх працівників
+#робимо цикл в якому перебираєм всіх працівників -> берем імя касирів і приміряєм частку повернень
+#якщо частка 0 - норм, якщо більше 0.6 - підозрюваний, інакше підпитанням
 for cashier, chast in chast.items():
     if chast == 0:
         print(cashier, "- norm tip")
@@ -42,8 +46,9 @@ for cashier, chast in chast.items():
         print(f'{cashier}, {round(chast, 5)} - підпитанням')
 
 
-#шукаємо аномалії
+#шукаємо аномалії -> переводим таблицю в numpy
 amounts = refunds["amount"].to_numpy()
+#рахуєм z-score і відбираєм аномалії де z-score > 0.8 (z = (сума - mean) / std)
 z = (amounts - amounts.mean()) / amounts.std()
 anomalies = refunds[z > 0.8]
 
@@ -53,35 +58,71 @@ print("Аномальні повернення робили:", ", ".join(anomali
 
 #визначаємо людину яка найбільше робила повернення в нічний час
 date = refunds[refunds["hour"] > 21]
+#сайз рахує кількість повернень по касирам, idxmax() повертає імя касира з найбільшою кількістю повернень в нічний час
 date_grouped = date.groupby("cashier").size().idxmax()
 
 #виводить третій етап
 print(f'\n===Третій Етап Перевірки===')
 print(f'Повернення в нічний час робив найчастіше: {date_grouped}')
 
-#визначає топ по поверненням і аномаліям
-top_refunder = refunds.groupby("cashier").size().idxmax()
-top_anomaly = anomalies["cashier"].mode()[0] if not anomalies.empty else None
+#висновок через систему балів
+#рахуєм частку повернень по касирам і зберігаєм в змінну share, fillna(0) щоб заповнити NaN нулями
+share = (refunds.groupby("cashier").size() / transactions.groupby("cashier").size()).fillna(0)
+#рахуєм кількість повернень в нічний час по касирам і зберігаєм в змінну night, reindex(share.index, fill_value=0) щоб додати всіх касирів навіть якщо вони не робили нічних повернень
+night = refunds[refunds["hour"] > 21].groupby("cashier").size().reindex(share.index, fill_value=0)
 
-#визначає всиновок про підозрюваного, якщо він є
-suspect = top_refunder if top_refunder == date_grouped == top_anomaly else None
+
+#создаєм фрейм з індексом касирів 
+flags = pd.DataFrame(index=share.index)
+#дізнаємся чи частка повернень > 0.6
+flags["high_chast"] = share > 0.6
+#дізнаємся чи робив касир аномальні повернення
+flags["anomaly"] = flags.index.isin(anomalies["cashier"])
+#дізнаємся чи робив касир повернення в нічний час >= 2
+flags["night"] = night >= 2
+#рахуєм суму балів по кожному касиру
+flags["score"] = flags.sum(axis=1)
+
+#визначаємо винних - ті у кого score >= 2
+guilty = flags[flags["score"] >= 2].index.tolist()
 
 #виводить підсумок
 print(f'\n===Фінальний Етап Перевірки===')
-print(f"Винуватець: {suspect if suspect else 'не знайдено'}")
+print(flags)
+print(f"Винні: {', '.join(guilty) if guilty else 'не знайдено'}")
 
-#создаємо полотно для графіків
+#робить графіки на чорному фоні
+plt.style.use("dark_background")
+
+#визначаємо середнє значення суми повернень
+mean = refunds["amount"].mean()
+
+#создаєм один раз фігуру і додаєм два графіки в один рядок
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-#робимо перший графік - суму повернень по касирах
-color1 = ["blue", "orange", "green"]
-result["sum"].plot(kind="bar", ax=axes[0], color=color1)
-axes[0].set_title("Сума повернень по касирах")
+#перший графік - повернення, ніч і середнє
+#будуєм перший графік по годинам і сумрю повернень, додаєм легенду і колір
+axes[0].scatter(refunds["hour"], refunds["amount"], color="cyan", label="повернення")
+#додаєм червоний прямокутник на графік для позначення нічного часу (21-24 години) + додаєм легенду, прозорість, колір
+axes[0].axvspan(21, 24, color="red", alpha=0.25, label="ніч")
+#виводим середнє значення на графік як пунктирну лінію і надаєм їй оранжевий колір і легенду
+axes[0].axhline(mean, color="orange", linestyle="--", label="середнє")
+#робим анотацію щоб показати макс точку на графіку, xy - координати точки, xytext - координати тексту, arrowprops - властивості стрілки
+axes[0].annotate("max", xy=(23, 320), xytext=(15, 300),
+                 arrowprops=dict(arrowstyle="->", color="white"))
+#додаєм заголовок, підписи осей і легенду
+axes[0].set_title("Повернення і середнє")
+axes[0].set_xlabel("година")
+axes[0].set_ylabel("сума")
+axes[0].legend()
 
-#робимо другий графік - кількість повернень по годинах
-color2 = ["red", "purple", "yellow"]
-refunds.groupby("hour").size().plot(kind="bar", ax=axes[1], color=color2)
+#другий графік - кількість повернень по годинах
+#робим групування по годинах і рахуєм кількість повернень, будуєм графік типу bar, додаєм колір і ставим його справа від першого графіка
+refunds.groupby("hour").size().plot(kind="bar", ax=axes[1], color="cyan")
+#додаєм заголовок, підписи осей
 axes[1].set_title("Повернення по годинах")
+axes[1].set_xlabel("година")
+axes[1].set_ylabel("кількість")
 
 #зжимаєм і виводимо графіки
 plt.tight_layout()
